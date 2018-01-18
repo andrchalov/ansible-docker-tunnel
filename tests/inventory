@@ -1,0 +1,6 @@
+[all:vars]
+docker_tunnel_server = server
+
+[local]
+server ansible_connection=local docker_tunnel_dir=/srv/server docker_tunnel_server_container_name=server
+client ansible_connection=local docker_tunnel_dir=/srv/client docker_tunnel_client_container_name=client

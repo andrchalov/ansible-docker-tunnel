@@ -1,0 +1,16 @@
+---
+- hosts: all
+  roles:
+    - name: role_under_test
+      docker_tunnel_local_forward:
+        - bind_address: 127.0.0.1
+          port: 3443
+          host: "github.com"
+          hostport: "443"
+  post_tasks:
+    - name: testing tunnel
+      uri:
+        url: https://127.0.0.1:3443
+        validate_certs: False
+        timeout: 5
+      changed_when: false

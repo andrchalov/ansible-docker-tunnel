@@ -1,0 +1,11 @@
+---
+docker_tunnel_image: andrchalov/ansible-docker-tunnel:latest
+docker_tunnel_dir: '/srv/ssh-tunnel'     # stores auto-generated files like ssh keys
+docker_tunnel_port: 2222                 # communication port
+docker_tunnel_bind_root: false           # need to be enabled if you want to bind
+                                         # system port (in 0—1023 range)
+
+docker_tunnel_server_container_name: ssh-tunnel-server
+docker_tunnel_client_container_name: ssh-tunnel-client
+
+docker_tunnel_server_ip: "{{hostvars[docker_tunnel_server].ansible_default_ipv4.address}}"

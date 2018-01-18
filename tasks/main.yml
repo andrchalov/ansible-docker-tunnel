@@ -1,0 +1,116 @@
+---
+- name: Create base directory
+  file:
+    path: "{{docker_tunnel_dir}}"
+    mode: "0700"
+    state: directory
+
+- name: Create .ssh directory
+  file:
+    path: "{{docker_tunnel_dir}}/.ssh"
+    mode: "0700"
+    owner: 1000
+    group: 1000
+    state: directory
+
+- name: Generate client certificate
+  shell: ssh-keygen -f {{docker_tunnel_dir}}/.ssh/id_rsa -t rsa -P '' -C "ansible-docker-tunnel"
+  args:
+    creates: "{{docker_tunnel_dir}}/.ssh/id_rsa"
+  when: inventory_hostname != docker_tunnel_server
+
+- name: Set permissions on client certificate
+  file:
+    dest: "{{docker_tunnel_dir}}/.ssh/id_rsa"
+    owner: "{{ '0' if docker_tunnel_bind_root else '1000' }}"
+    group: "{{ '0' if docker_tunnel_bind_root else '1000' }}"
+    mode: 0600
+    state: file
+  when: inventory_hostname != docker_tunnel_server
+
+- name: Get public key for client certificate
+  shell:
+    "cat {{docker_tunnel_dir}}/.ssh/id_rsa.pub"
+  changed_when: false
+  register: __id_rsa_pub
+  when: inventory_hostname != docker_tunnel_server
+
+- name: Create authorized_keys file if not exists
+  shell: touch {{docker_tunnel_dir}}/.ssh/authorized_keys
+  args:
+    creates: "{{docker_tunnel_dir}}/authorized_keys"
+  when: inventory_hostname == docker_tunnel_server
+
+- name: Push public key to master
+  authorized_key:
+    key: "{{__id_rsa_pub.stdout}}"
+    manage_dir: false
+    path: "{{hostvars[docker_tunnel_server].docker_tunnel_dir}}/.ssh/authorized_keys"
+    user: root
+  delegate_to: "{{docker_tunnel_server}}"
+  when: inventory_hostname != docker_tunnel_server
+
+- name: Set right permissions on authorized_keys file
+  file:
+    dest: "{{docker_tunnel_dir}}/.ssh/authorized_keys"
+    owner: 1000
+    group: 1000
+    state: file
+  run_once: true
+  delegate_to: "{{docker_tunnel_server}}"
+
+- name: Generate server ssh_host_key
+  shell: ssh-keygen -f {{docker_tunnel_dir}}/ssh_host_key -t ecdsa-sha2-nistp256 -P '' -C "ansible-docker-tunnel"
+  args:
+    creates: "{{docker_tunnel_dir}}/ssh_host_key"
+  when: inventory_hostname == docker_tunnel_server
+
+- name: Get master ssh_host_key.pub
+  shell: cat {{docker_tunnel_dir}}/ssh_host_key.pub
+  changed_when: false
+  register: __master_ssh_host_key_pub
+  run_once: true
+  delegate_to: "{{docker_tunnel_server}}"
+
+- name: Create ssh_known_hosts file
+  copy:
+    content: "[{{docker_tunnel_server_ip}}]:{{docker_tunnel_port}} {{__master_ssh_host_key_pub.stdout}}"
+    dest: "{{docker_tunnel_dir}}/ssh_known_hosts"
+    mode: 0644
+  notify: plan to restart containers
+
+- meta: flush_handlers
+
+- name: (Re)run server container
+  docker_container:
+    name: "{{docker_tunnel_server_container_name}}"
+    image: "{{docker_tunnel_image}}"
+    network_mode: host
+    volumes:
+      - "{{docker_tunnel_dir}}/ssh_host_key:/etc/ssh/keys/ssh_host_key:ro"
+      - "{{docker_tunnel_dir}}/.ssh:/home/tunnel/.ssh:ro"
+    restart_policy: always
+    pull: "{{__docker_tunnel_restart | default(false)}}"
+    restart: "{{__docker_tunnel_restart | default(false)}}"
+    command: "/usr/sbin/sshd -D -f /etc/ssh/sshd_config -p {{docker_tunnel_port}}"
+    state: "{{ 'started' if inventory_hostname == docker_tunnel_server else 'absent' }}"
+
+- name: (Re)run client container
+  docker_container:
+    name: "{{docker_tunnel_client_container_name}}"
+    image: "{{docker_tunnel_image}}"
+    network_mode: host
+    user: "{{'root' if docker_tunnel_bind_root else 'tunnel'}}"
+    volumes:
+      - "{{docker_tunnel_dir}}/ssh_known_hosts:/etc/ssh/ssh_known_hosts:ro"
+      - "{{docker_tunnel_dir}}/.ssh:{{ '/root' if docker_tunnel_bind_root else '/home/tunnel' }}/.ssh:ro"
+    restart_policy: always
+    pull: "{{__docker_tunnel_restart | default(false)}}"
+    restart: "{{__docker_tunnel_restart | default(false)}}"
+    command: "
+      /usr/bin/ssh -N \
+      {% for item in docker_tunnel_local_forward %}-L {{ item.bind_address+':' if item.bind_address is defined else ''}}{{item.port}}:{{item.host}}:{{item.hostport}} {% endfor %} \
+      tunnel@{{docker_tunnel_server_ip}} \
+      -p {{docker_tunnel_port}}
+    "
+    state: "{{ 'started' if inventory_hostname != docker_tunnel_server else 'absent' }}"
