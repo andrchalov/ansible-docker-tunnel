@@ -1,0 +1,16 @@
+---
+galaxy_info:
+  author: Andrey Chalov
+  description: Ansible role creates dockerized SSH tunnels
+  license: "license (BSD, MIT)"
+  min_ansible_version: 2.4
+  platforms:
+    - name: Ubuntu
+      versions:
+        - xenial
+        - bionic
+  galaxy_tags:
+    - docker
+    - ssh
+    - tunnel
+    - ubuntu
