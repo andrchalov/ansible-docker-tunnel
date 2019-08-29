@@ -38,7 +38,7 @@
 - name: Create authorized_keys file if not exists
   shell: touch {{docker_tunnel_dir}}/.ssh/authorized_keys
   args:
-    creates: "{{docker_tunnel_dir}}/authorized_keys"
+    creates: "{{docker_tunnel_dir}}/.ssh/authorized_keys"
   when: inventory_hostname == docker_tunnel_server
 
 - name: Push public key to master
